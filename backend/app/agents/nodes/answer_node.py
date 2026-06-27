@@ -27,7 +27,15 @@ def make_answer_node(config):
             f"{background}\n\n"
             "Write a direct, natural answer based on the background information."
         )
-        result = llm.invoke(prompt)
-        return {"final_answer": result.content}
+        try:
+            result = llm.invoke(prompt)
+            content = result.content
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"LLM invoke failed in answer node: {e}")
+            content = "Sorry, I encountered an error while generating the final answer. Please try again."
+
+        return {"final_answer": content}
 
     return answer_node

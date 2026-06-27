@@ -4,7 +4,7 @@ import logging
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.services.chroma_service import get_chroma_service
+from app.services.hybrid_retrieval import hybrid_retrieve
 
 logger = logging.getLogger('app')
 
@@ -29,18 +29,12 @@ def create_retrieval_tool(user_id: str, project_id: str):
 
         top_k = current_app.config["TOP_K_RESULTS"]
         top_k = max(1, min(top_k, 10))
-        filter_conditions = [{"user_id": user_id}]
-        if project_id:
-            filter_conditions.append({"project_id": project_id})
-
-        where_filter = (
-            filter_conditions[0]
-            if len(filter_conditions) == 1
-            else {"$and": filter_conditions}
-        )
-
-        chunks = get_chroma_service().retrieve(
-            query=query, top_k=top_k, where=where_filter
+        
+        chunks = hybrid_retrieve(                         
+            query=query,
+            user_id=user_id,
+            project_id=project_id,
+            top_k=top_k,
         )
 
         if not chunks:
@@ -49,15 +43,14 @@ def create_retrieval_tool(user_id: str, project_id: str):
         formatted = []
         for i, chunk in enumerate(chunks, 1):
             meta = chunk.get("metadata", {})
-            src = meta.get("source", meta.get("filename", chunk["id"]))
-            formatted.append(
-                {
-                    "chunk_index": i,
-                    "source": src,
-                    "similarity_distance": chunk["distance"],
-                    "content": chunk["document"],
-                }
-            )
+            formatted.append({
+                "chunk_index":        i,
+                "content":            chunk["document"],
+                "page_number":        meta.get("page_number"),
+                "layout_element_id":  meta.get("layout_element_id"),
+                "element_type":       meta.get("element_type"),
+                "rrf_score":          chunk.get("rrf_score"),
+            })
 
         logger.debug(f"RetrievalTool returned {len(chunks)} chunks")
         return formatted

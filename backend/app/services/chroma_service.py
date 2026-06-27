@@ -63,6 +63,15 @@ class ChromaService:
 
             def __init__(self, model_name: str):
                 """__init__ function."""
+                import os
+                os.environ["OMP_NUM_THREADS"] = "1"
+                os.environ["MKL_NUM_THREADS"] = "1"
+                try:
+                    import torch
+                    torch.set_num_threads(1)
+                except ImportError:
+                    pass
+
                 from sentence_transformers import SentenceTransformer
 
                 self._model = SentenceTransformer(model_name, device="cpu")
@@ -191,7 +200,7 @@ class ChromaService:
         """Delete documents by ID list."""
         self._collection.delete(ids=ids)
         total = self._collection.count()
-        logger.info(f"🗑️  Deleted {len(ids)} documents — collection total: {total}")
+        logger.info(f"Deleted {len(ids)} documents — collection total: {total}")
         return {"deleted": len(ids), "total": total}
 
     def delete(self, where: dict | None = None, ids: list[str] | None = None) -> None:
@@ -199,7 +208,7 @@ class ChromaService:
         self._collection.delete(where=where, ids=ids)
         total = self._collection.count()
         logger.info(
-            f"🗑️ Deleted documents with filter {where} or ids {ids} — collection total: {total}"
+            f"Deleted documents with filter {where} or ids {ids} — collection total: {total}"
         )
 
     def collection_info(self) -> dict:

@@ -46,3 +46,5 @@ class ChatMessage(db.Model):
     )
 
     conversation = relationship("ChatConversation", back_populates="messages")
+
+    citations = relationship("MessageCitation", back_populates="message", cascade="all, delete-orphan")

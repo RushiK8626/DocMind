@@ -43,14 +43,15 @@ export default function ChatPage() {
     }
   };
 
-  const fetchConversations = async () => {
+  const fetchConversations = async (forceActiveId = null) => {
     try {
       setLoadingConversations(true);
       const res = await getConversations(projectId, 1);
       const fetchedConvs = res.conversations || [];
       setConversations(fetchedConvs);
 
-      if (fetchedConvs.length > 0 && !activeConversationId) {
+      const currentActive = forceActiveId || activeConversationId;
+      if (fetchedConvs.length > 0 && !currentActive) {
         setActiveConversationId(fetchedConvs[0].id);
       }
     } catch (err) {
@@ -120,18 +121,59 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
-      const response = await sendChatMessage(userMsg, projectId, activeConversationId);
+      setMessages(prev => [...prev, { role: "assistant", content: "", reasoning: "" }]);
 
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: response.answer || 'No response provided.' }
-      ]);
+      await sendChatMessage(
+        userMsg,
+        projectId,
+        activeConversationId,   // pass active conversation
+        5,
 
-      if (response.is_new_conversation && response.conversation_id) {
-        skipFetchRef.current = true;
-        setActiveConversationId(response.conversation_id);
-        fetchConversations();
-      }
+        // onNewConversation - update current conversation id in state and fetch list
+        (new_conversation) => {
+          setActiveConversationId(new_conversation.conversation_id);
+          skipFetchRef.current = true;
+          fetchConversations(new_conversation.conversation_id);
+        },
+
+        // onToken — append each token to the last message
+        (token) => {
+          setMessages(prev => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              content: updated[updated.length - 1].content + token,
+            };
+            return updated;
+          });
+        },
+
+        // onDone
+        (meta) => {
+          setMessages(prev => {
+            const updated = [...prev];
+            if (meta.pipeline && meta.pipeline.reasoning_output) {
+              updated[updated.length - 1].reasoning = meta.pipeline.reasoning_output;
+            }
+            return updated;
+          });
+          setLoading(false);
+        },
+
+        // onError — replace empty bubble with error message
+        (errMsg) => {
+          setMessages(prev => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              ...updated[updated.length - 1],
+              content: "⚠️ Something went wrong. Please try again.",
+              error: true,
+            };
+            return updated;
+          });
+          setLoading(false);
+        }
+      )
     } catch (err) {
       setMessages(prev => [
         ...prev,
@@ -139,6 +181,13 @@ export default function ChatPage() {
       ]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
     }
   };
 
@@ -202,6 +251,14 @@ export default function ChatPage() {
                     {msg.role === 'user' ? (user?.email?.[0]?.toUpperCase() || 'U') : 'AI'}
                   </div>
                   <div className="message-bubble">
+                    {msg.role === 'assistant' && msg.reasoning && (
+                      <details style={{ marginBottom: '10px', fontSize: '0.9em', color: 'var(--color-text-muted)' }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Thinking Process</summary>
+                        <div style={{ padding: '8px', background: 'var(--color-bg-secondary)', borderRadius: '4px', marginTop: '4px', whiteSpace: 'pre-wrap' }}>
+                          {msg.reasoning}
+                        </div>
+                      </details>
+                    )}
                     <div className="message-content">
                       {msg.content}
                     </div>
@@ -232,6 +289,7 @@ export default function ChatPage() {
             placeholder="Ask a question about your documents..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
             disabled={loading}
           />
           <button type="submit" className="btn-send" disabled={!input.trim() || loading}>

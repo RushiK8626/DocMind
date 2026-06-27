@@ -1,13 +1,11 @@
 """Module ocr_service.py."""
 import os
 import uuid
-from typing import List
-from PIL import Image
-import numpy as np
 from decimal import Decimal
 
 from app.extensions import db
 from app.models import Page, LayoutElement, ElementType
+from app.services.bm25_service import invalidate_bm25_cache
 
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat, DocItemLabel
@@ -103,8 +101,6 @@ class OcrProcessingService:
                 )
                 db.session.add(db_page)
 
-                print(raw_page_text)
-
                 for item, _ in docling_doc.iterate_items():
 
                     if not hasattr(item, "prov") or not any(
@@ -191,6 +187,9 @@ class OcrProcessingService:
                 doc.status = "ready"
 
             db.session.commit()
+            
+            invalidate_bm25_cache(user_id=user_id, project_id=project_id)
+            
             return True
 
         except Exception as e:

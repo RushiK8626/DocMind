@@ -124,12 +124,72 @@ export async function getDocumentContentUrl(id) {
 }
 
 //  Chat / Conversations 
-export async function sendChatMessage(query, projectId, conversationId = null, topK = 5) {
+// export async function sendChatMessage(query, projectId, conversationId = null, topK = 5) {
+//   const body = { query, top_k: topK };
+//   if (projectId) body.project_id = projectId;
+//   if (conversationId) body.conversation_id = conversationId;
+//   const data = await request('POST', '/api/chats/answer', { body });
+//   return data;
+// }
+
+// SSE stream support
+export async function sendChatMessage(
+  query,
+  projectId,
+  conversationId = null,
+  topK = 5,
+  onNewConversation, // callback: (meta: { conversation_id, title }) => void
+  onToken,        // callback: (token: string) => void
+  onDone,         // callback: (meta: { conversation_id, is_new_conversation, ... }) => void
+  onError,        // callback: (message: string) => void
+) {
   const body = { query, top_k: topK };
   if (projectId) body.project_id = projectId;
   if (conversationId) body.conversation_id = conversationId;
-  const data = await request('POST', '/api/chats/answer', { body });
-  return data;
+
+  const response = await fetch(`${API_BASE}/api/chats/answer/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${localStorage.getItem('access_token')}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    onError?.(err.message || "Request failed");
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();   // hold incomplete line for next chunk
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+
+      let event;
+      try {
+        event = JSON.parse(line.slice(6));
+      } catch {
+        continue;
+      }
+
+      if (event.type === "token") onToken?.(event.content);
+      else if (event.type === "new_conversation") onNewConversation?.(event);
+      else if (event.type === "done") onDone?.(event);
+      else if (event.type === "error") onError?.(event.message);
+    }
+  }
 }
 
 export async function getConversations(projectId, page = 1) {

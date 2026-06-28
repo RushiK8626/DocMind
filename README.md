@@ -37,11 +37,17 @@ Instead of passing retrieved documents blindly to an LLM, the platform implement
 - **Multi-Node Workflow:**
   - **Route Entry:** Analyzes the user's intent. If it is a greeting, it routes directly to the `greeting` node to save LLM tokens and latency. Otherwise, it kicks off reasoning.
   - **Reasoning Node (`reason`):** The LLM acts as an analyst. It evaluates the query and has access to three developer tools:
-    1. **`retrieve_documents`**: Queries the ChromaDB vector store. This query is strictly filtered by `user_id` and `project_id` to prevent cross-tenant leakages.
+    1. **`retrieve_documents`**: Queries the ChromaDB vector store using a hybrid retrieval mechanism (see below). This query is strictly filtered by `user_id` and `project_id` to prevent cross-tenant leakages.
     2. **`web_search`**: Leverages SerpAPI to fetch live Google search results if document context is insufficient.
     3. **`code_interpreter`**: Runs a sandboxed Python execution subprocess to perform math, validation, or logical derivations.
   - **Tools Execution (`reason_tools`):** Executes the selected tool and appends outputs directly into the graph message history. The agent loops back to the `reason` node to inspect tool output and optionally request another tool.
   - **Answer Synthesis Node (`answer`):** Once the reasoning loop exits (`END`), the answer node compiles the accumulated research (contexts, tool logs, reasoning steps) and synthesizes a direct, natural response.
+
+## 3. Other Features
+
+- **Hybrid Retrieval (Vector + Keyword Search):** Rather than relying solely on semantic embeddings, the system retrieves highly relevant document chunks using a hybrid search paradigm that combines semantic search (ChromaDB + local `all-MiniLM-L6-v2` SentenceTransformers) and lexical search (cached BM25 indexes) using **Reciprocal Rank Fusion (RRF)**. Centralized filtering enforces strict tenant isolation by `user_id` and `project_id`.
+- **Citations Management & Bounding-Box Mapping:** To guarantee factual verification, the LangGraph agent generates inline references matching `[SOURCE N] Page P | Element ID: EID | Type: TYPE`. The backend parses these with a custom regex engine (`app/utils/citation_parser.py`) and stores them in the `message_citation` database table. The React frontend uses these structured annotations to highlight corresponding layout bounding boxes directly on the PDF canvas.
+- **Real-Time Streaming via Server-Sent Events (SSE):** To minimize time-to-first-token (TTFT), the Flask backend leverages LangGraph streaming (`graph.stream` with `stream_mode=["messages", "values"]`) to stream individual text tokens to the frontend via SSE. The stream outputs `token` events in real-time, a `new_conversation` event for thread metadata, and a final `done` event carrying parsed citations and reasoning traces.
 
 ---
 
